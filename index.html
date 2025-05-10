@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Cube Puzzle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none; /* Prevents pull-to-refresh on mobile */
+        }
+        .puzzle-grid-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px; /* Gap between layer tables */
+            justify-content: center;
+            align-items: flex-start; 
+            padding: 8px;
+            overflow-x: auto; 
+            margin-bottom: 16px; /* Space before controls */
+        }
+        .puzzle-layer-table {
+            border-collapse: collapse;
+            border: 2px solid #6b7280; /* gray-500 */
+            touch-action: none; 
+        }
+        .puzzle-cell {
+            width: 32px; 
+            height: 32px;
+            min-width: 32px; 
+            border: 1px solid #d1d5db; /* gray-300 */
+            position: relative;
+            background-color: #f3f4f6; /* gray-100 - empty color */
+            cursor: pointer;
+            user-select: none;
+        }
+        /* Adjusted for two concentric squares */
+        .cell-depth-outer-ring, .cell-depth-inner-fill {
+            position: absolute;
+            box-sizing: border-box;
+        }
+        .cell-depth-outer-ring { /* This will be the border */
+            width: 100%; 
+            height: 100%;
+            border: 3px solid transparent; /* Thicker border for visual effect */
+            left: 0; 
+            top: 0;
+        }
+        .cell-depth-inner-fill { /* This will be the background fill */
+            width: calc(100% - 10px); /* Make inner fill smaller to show outer ring's border more */
+            height: calc(100% - 10px);
+            /* background-color will be piece color */
+            left: 5px; 
+            top: 5px;
+        }
+
+        .piece-palette-wrapper {
+            width: 100%;
+            margin-top: 16px; 
+            padding: 8px;
+            background-color: #e5e7eb; /* gray-200 */
+            border-radius: 8px;
+            box-shadow: 0 -2px 5px rgba(0,0,0,0.1); 
+        }
+        .piece-palette {
+            display: flex;
+            flex-direction: row; 
+            flex-wrap: wrap; 
+            gap: 8px;
+            padding: 8px;
+            min-height: 60px; 
+            background-color: transparent; 
+            border-radius: 6px;
+            justify-content: center; 
+            overflow-x: auto; 
+        }
+        .piece-representation {
+            width: auto;
+            height: auto;
+            padding: 4px;
+            border: 2px solid #9ca3af; /* gray-400 */
+            background-color: #fff;
+            cursor: grab;
+            display: grid; 
+            gap: 1px;
+            border-radius: 4px;
+        }
+        .piece-representation.dragging {
+            opacity: 0.7;
+            cursor: grabbing;
+        }
+        .piece-block-mini {
+            width: 8px; 
+            height: 8px;
+        }
+        .piece-block-ghost {
+            opacity: 0.5;
+        }
+        .controls-container {
+            padding: 8px;
+            background-color: #f0f0f0; 
+            border-radius: 8px;
+            margin-bottom: 16px; 
+        }
+        .controls-container button, .size-selector select {
+            padding: 6px 10px; 
+            border-radius: 6px;
+            background-color: #3b82f6; /* blue-500 */
+            color: white;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin: 2px; 
+        }
+        .controls-container button:hover, .size-selector select:hover {
+            background-color: #2563eb; /* blue-600 */
+        }
+        .controls-container button:disabled {
+            background-color: #9ca3af; /* gray-400 */
+            cursor: not-allowed;
+        }
+        .message-box {
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 10px;
+            text-align: center;
+            font-weight: 500;
+        }
+        .message-success {
+            background-color: #d1fae5; /* green-100 */
+            color: #065f46; /* green-800 */
+        }
+        .message-error {
+            background-color: #fee2e2; /* red-100 */
+            color: #991b1b; /* red-800 */
+        }
+        .highlight-valid {
+            outline: 2px dashed #22c55e; /* green-500 */
+            outline-offset: -2px;
+        }
+        .highlight-invalid {
+            outline: 2px dashed #ef4444; /* red-500 */
+            outline-offset: -2px;
+        }
+        .main-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px;
+            max-width: 100vw;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        .game-area { 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 900px; 
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 antialiased select-none">
+
+    <div class="main-content container mx-auto p-2 md:p-4">
+        <header class="text-center mb-4">
+            <h1 class="text-2xl md:text-3xl font-bold text-blue-600">3D Cube Puzzle</h1>
+        </header>
+
+        <div class="size-selector mb-3 text-center">
+            <label for="puzzle-size-selector" class="mr-2 font-medium">Puzzle Size:</label>
+            <select id="puzzle-size-selector" class="border border-gray-300 rounded-md p-1 md:p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                <option value="3">3x3x3</option>
+                <option value="4">4x4x4</option>
+                <option value="5">5x5x5</option>
+            </select>
+            <button id="new-game-button" class="ml-2">New Game</button>
+        </div>
+
+        <div class="game-area">
+            <div id="puzzle-grid-container" class="puzzle-grid-container bg-white shadow-lg rounded-lg p-1 md:p-2">
+                {/* Puzzle layers (tables) will be generated here */}
+            </div>
+
+<div class="controls-container flex flex-wrap justify-center gap-1 md:gap-2 mb-3 p-2 bg-gray-200 rounded-md">
+    <button id="rotate-x-button" title="Rotate X (X)">Rot X</button>
+    <button id="rotate-y-button" title="Rotate Y (Y)">Rot Y</button>
+    <button id="rotate-z-button" title="Rotate Z (Z)">Rot Z</button>
+    <button id="confirm-placement-button" title="Confirm Placement (Enter)" class="bg-green-500 hover:bg-green-600">Place ✔</button>
+    <button id="deselect-button" title="Deselect Piece (Escape)" class="bg-red-500 hover:bg-red-600">Deselect</button>
+</div>
+        </div>
+
+        <div class="piece-palette-wrapper">
+            <h2 class="text-lg md:text-xl font-semibold mb-1 text-center">Available Pieces</h2>
+            <div id="piece-palette-container" class="piece-palette">
+                {/* Draggable pieces will be generated here */}
+            </div>
+        </div>
+        
+        <div id="message-area" class="message-box mt-3" role="alert">
+            Select a puzzle size and start a new game!
+        </div>
+    </div>
+
+    <script>
+        // --- Global Game State ---
+        let puzzleSize = 3;
+        let puzzleGrid = []; 
+        let solutionGrid = []; 
+        let gamePieces = []; 
+        let availablePieces = []; 
+        
+        let selectedPiece = null; 
+        let draggedPieceElement = null; 
+        let draggedPieceData = null; 
+
+        let ghostCells = []; 
+
+        // --- DOM Elements ---
+        const puzzleGridContainer = document.getElementById('puzzle-grid-container');
+        const piecePaletteContainer = document.getElementById('piece-palette-container');
+        const messageArea = document.getElementById('message-area');
+        const puzzleSizeSelector = document.getElementById('puzzle-size-selector');
+
+        // --- Constants ---
+        const COLORS = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#0ea5e9', '#6366f1', '#a855f7', '#ec4899'];
+        const EMPTY_CELL_COLOR = '#f3f4f6'; 
+        const GHOST_COLOR = 'rgba(100, 116, 139, 0.5)'; 
+
+        // --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('new-game-button').addEventListener('click', initializeNewGame);
+            puzzleSizeSelector.addEventListener('change', initializeNewGame);
+
+            // Rotation, depth, movement, and placement controls
+            document.getElementById('rotate-x-button').addEventListener('click', () => rotateSelectedPiece('x'));
+            document.getElementById('rotate-y-button').addEventListener('click', () => rotateSelectedPiece('y'));
+            document.getElementById('rotate-z-button').addEventListener('click', () => rotateSelectedPiece('z'));
+            // Event listeners for removed buttons are now deleted
+            document.getElementById('deselect-button').addEventListener('click', deselectPiece);
+            document.getElementById('confirm-placement-button').addEventListener('click', confirmPiecePlacement);
+            
+            document.addEventListener('keydown', handleKeyPress);
+            initializeNewGame(); 
+        });
+
+        function initializeNewGame() {
+            puzzleSize = parseInt(puzzleSizeSelector.value);
+            selectedPiece = null;
+            draggedPieceElement = null;
+            draggedPieceData = null;
+            ghostCells = [];
+            
+            showMessage(`Generating new ${puzzleSize}x${puzzleSize}x${puzzleSize} puzzle...`, 'info');
+
+            const generationResult = generateSolvablePuzzle(puzzleSize);
+            if (!generationResult) {
+                showMessage('Failed to generate a solvable puzzle. Please try again.', 'error');
+                puzzleGrid = createEmptyGrid(puzzleSize); // Still show empty grid
+                gamePieces = [];
+                availablePieces = [];
+                renderPuzzleGrid();
+                renderPiecePalette();
+                updateButtonStates();
+                return;
+            }
+
+            puzzleGrid = createEmptyGrid(puzzleSize); 
+            solutionGrid = generationResult.solvedGrid; 
+            gamePieces = generationResult.gamePieces.map(p => ({
+                ...p,
+                placed: false,
+                currentRotationMatrix: identityMatrix(), 
+                positionOnBoard: null, 
+                currentShapeCoords: transformShape(p.shape, identityMatrix()),
+                previewPosition: { x: 0, y: 0, z: 0 } // Default preview position
+            }));
+            availablePieces = [...gamePieces];
+
+            renderPuzzleGrid();
+            renderPiecePalette();
+            updateButtonStates();
+            if (gamePieces.length > 0) {
+                showMessage(`Puzzle ready! Drag or select pieces. Total pieces: ${gamePieces.length}`, 'success');
+            } else {
+                showMessage('No pieces generated. Puzzle generation might need adjustment.', 'error');
+            }
+        }
+
+        // --- Grid and Piece Logic ---
+        function createEmptyGrid(size) {
+            const grid = [];
+            for (let z = 0; z < size; z++) {
+                const layer = [];
+                for (let y = 0; y < size; y++) {
+                    layer.push(new Array(size).fill(0));
+                }
+                grid.push(layer);
+            }
+            return grid;
+        }
+
+        function generateSolvablePuzzle(size) {
+            let tempGrid = createEmptyGrid(size);
+            let pieces = [];
+            let pieceIdCounter = 1;
+            let filledCellsCount = 0;
+            const totalCells = size * size * size;
+            let attempts = 0;
+            const maxAttempts = totalCells * 5; 
+
+            let targetBlocks = [];
+            let currentBlockSum = 0;
+            while(currentBlockSum < totalCells) {
+                let nextBlockSize = (Math.random() < 0.6 || totalCells - currentBlockSum === 4) ? 4 : 5; 
+                if (currentBlockSum + nextBlockSize > totalCells) {
+                    if (totalCells - currentBlockSum >= 4 && totalCells - currentBlockSum <= 5) {
+                        nextBlockSize = totalCells - currentBlockSum;
+                    } else {
+                        break; 
+                    }
+                }
+                targetBlocks.push(nextBlockSize);
+                currentBlockSum += nextBlockSize;
+            }
+            if (currentBlockSum !== totalCells && targetBlocks.length > 0) {
+                let remaining = totalCells - (currentBlockSum - targetBlocks[targetBlocks.length-1]);
+                if (remaining >= 4 && remaining <= 5) targetBlocks[targetBlocks.length-1] = remaining;
+                else targetBlocks = []; 
+            }
+
+            let blockQueue = [...targetBlocks];
+
+            while (filledCellsCount < totalCells && attempts < maxAttempts) {
+                attempts++;
+                let numBlocks;
+                if (blockQueue.length > 0) {
+                    numBlocks = blockQueue.shift();
+                } else { 
+                    if (totalCells - filledCellsCount >= 5) numBlocks = (Math.random() < 0.6) ? 4 : 5;
+                    else if (totalCells - filledCellsCount === 4) numBlocks = 4;
+                    else break; 
+                }
+                
+                if (!numBlocks || filledCellsCount + numBlocks > totalCells) continue;
+
+                const pieceShape = generateRandomPieceShape(numBlocks, size);
+                if (!pieceShape) continue;
+
+                const possiblePlacements = [];
+                const rotations = getAllRotations(); 
+
+                for (let z_coord = 0; z_coord < size; z_coord++) {
+                    for (let y_coord = 0; y_coord < size; y_coord++) {
+                        for (let x_coord = 0; x_coord < size; x_coord++) {
+                            if (tempGrid[z_coord][y_coord][x_coord] === 0) { 
+                                for (const rotMatrix of rotations) {
+                                    const transformedShape = transformShape(pieceShape, rotMatrix);
+                                    const placementResult = checkPlacement(tempGrid, transformedShape, {x: x_coord, y: y_coord, z: z_coord}, size);
+                                    if (placementResult.fits) {
+                                        possiblePlacements.push({
+                                            shape: pieceShape, 
+                                            transformedShape: transformedShape, 
+                                            position: {x: x_coord, y: y_coord, z: z_coord},
+                                            rotationMatrix: rotMatrix,
+                                            cells: placementResult.cellsToOccupy
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (possiblePlacements.length > 0) {
+                    const chosenPlacement = possiblePlacements[Math.floor(Math.random() * possiblePlacements.length)];
+                    const newPiece = {
+                        id: pieceIdCounter++,
+                        shape: chosenPlacement.shape, 
+                        color: COLORS[(pieceIdCounter - 2) % COLORS.length], // -2 because counter already incremented
+                        numBlocks: numBlocks,
+                        solutionPosition: chosenPlacement.position,
+                        solutionRotation: chosenPlacement.rotationMatrix 
+                    };
+                    pieces.push(newPiece);
+                    chosenPlacement.cells.forEach(cell => {
+                        tempGrid[cell.z][cell.y][cell.x] = newPiece.id;
+                    });
+                    filledCellsCount += numBlocks;
+                } else {
+                    if (numBlocks) blockQueue.unshift(numBlocks); // Put it back if no placement found
+                }
+            }
+            
+            if (filledCellsCount < totalCells) { 
+                 console.warn(`Puzzle generation incomplete: ${filledCellsCount}/${totalCells} cells filled. Trying to use only generated pieces.`);
+                 if (pieces.length === 0) return null; // No pieces generated at all
+                 // Recreate grid with only the pieces that were successfully placed
+                 tempGrid = createEmptyGrid(size);
+                 filledCellsCount = 0;
+                 pieces.forEach(p => {
+                    const transformedShape = transformShape(p.shape, p.solutionRotation);
+                    const placement = checkPlacement(tempGrid, transformedShape, p.solutionPosition, size);
+                    if(placement.fits){
+                        placement.cellsToOccupy.forEach(cell => {
+                            tempGrid[cell.z][cell.y][cell.x] = p.id;
+                        });
+                        filledCellsCount += p.numBlocks;
+                    } else {
+                        console.error("Error re-placing piece for solution grid. This should not happen.");
+                    }
+                 });
+                 if (filledCellsCount === 0 && pieces.length > 0) { // If somehow all pieces failed to re-place
+                    console.warn("All pieces failed to re-place in solution grid. Returning empty puzzle.");
+                    return null;
+                 }
+            }
+            return { solvedGrid: tempGrid, gamePieces: pieces };
+        }
+
+        function generateRandomPieceShape(numBlocks, puzzleDim) {
+            let shape = [[0,0,0]];
+            const DIRS = [ [0,0,1], [0,0,-1], [0,1,0], [0,-1,0], [1,0,0], [-1,0,0] ];
+            let attempts = 0;
+
+            while (shape.length < numBlocks && attempts < 50) {
+                attempts++;
+                const originBlock = shape[Math.floor(Math.random() * shape.length)];
+                const dir = DIRS[Math.floor(Math.random() * DIRS.length)];
+                const newBlock = [originBlock[0] + dir[0], originBlock[1] + dir[1], originBlock[2] + dir[2]];
+
+                if (!shape.some(b => b[0] === newBlock[0] && b[1] === newBlock[1] && b[2] === newBlock[2])) {
+                    let tempShape = [...shape, newBlock];
+                    let min = [Infinity,Infinity,Infinity], max = [-Infinity,-Infinity,-Infinity];
+                    tempShape.forEach(b => {
+                        min[0] = Math.min(min[0], b[0]); max[0] = Math.max(max[0], b[0]);
+                        min[1] = Math.min(min[1], b[1]); max[1] = Math.max(max[1], b[1]);
+                        min[2] = Math.min(min[2], b[2]); max[2] = Math.max(max[2], b[2]);
+                    });
+                    if (max[0]-min[0] < Math.min(4, puzzleDim) && max[1]-min[1] < Math.min(4, puzzleDim) && max[2]-min[2] < Math.min(4, puzzleDim)) {
+                         shape.push(newBlock);
+                         attempts = 0; 
+                    }
+                }
+            }
+            if (shape.length < numBlocks) return null; 
+
+            let minX = Infinity, minY = Infinity, minZ = Infinity;
+            shape.forEach(b => { minX = Math.min(minX, b[0]); minY = Math.min(minY, b[1]); minZ = Math.min(minZ, b[2]); });
+            return shape.map(b => [b[0] - minX, b[1] - minY, b[2] - minZ]);
+        }
+
+        function checkPlacement(grid, pieceCoords, position, gridSize) {
+            const cellsToOccupy = [];
+            for (const pCoord of pieceCoords) {
+                const absX = position.x + pCoord[0];
+                const absY = position.y + pCoord[1];
+                const absZ = position.z + pCoord[2];
+
+                if (absX < 0 || absX >= gridSize || absY < 0 || absY >= gridSize || absZ < 0 || absZ >= gridSize) {
+                    return { fits: false, reason: 'out_of_bounds' }; 
+                }
+                if (grid[absZ][absY][absX] !== 0) {
+                    return { fits: false, reason: 'overlap' }; 
+                }
+                cellsToOccupy.push({ x: absX, y: absY, z: absZ });
+            }
+            return { fits: true, cellsToOccupy };
+        }
+        
+        // --- Rendering ---
+        function renderPuzzleGrid() {
+            puzzleGridContainer.innerHTML = ''; 
+            clearGhostPreview();
+
+            for (let z = 0; z < puzzleSize; z++) {
+                const layerDiv = document.createElement('div');
+                layerDiv.className = 'puzzle-layer text-xs md:text-sm';
+                // Changed layer label
+                layerDiv.innerHTML = `<h3 class="font-semibold text-center mb-1">Layer ${z + 1}</h3>`; 
+                
+                const table = document.createElement('table');
+                table.className = 'puzzle-layer-table mx-auto';
+                table.dataset.zIndex = z;
+
+                for (let y = 0; y < puzzleSize; y++) {
+                    const row = table.insertRow();
+                    for (let x = 0; x < puzzleSize; x++) {
+                        const cell = row.insertCell();
+                        cell.className = 'puzzle-cell';
+                        cell.dataset.x = x;
+                        cell.dataset.y = y;
+                        cell.dataset.z = z;
+
+                        // Adjusted for two concentric squares
+                        const outerRing = document.createElement('div'); 
+                        outerRing.className = 'cell-depth-outer-ring';
+                        const innerFill = document.createElement('div'); 
+                        innerFill.className = 'cell-depth-inner-fill';
+                        
+                        const pieceId = puzzleGrid[z][y][x];
+                        let cellColor = EMPTY_CELL_COLOR;
+                        let borderColor = 'transparent'; // For the outer ring
+
+                        if (pieceId !== 0) {
+                            const piece = gamePieces.find(p => p.id === pieceId);
+                            if (piece) { 
+                                cellColor = piece.color; 
+                                borderColor = piece.color; // Or a darker shade: adjustColor(piece.color, -30);
+                            }
+                        }
+                        
+                        innerFill.style.backgroundColor = cellColor;
+                        outerRing.style.borderColor = borderColor;
+                        
+                        if (selectedPiece && !selectedPiece.placed && selectedPiece.previewPosition) {
+                            const sp = selectedPiece;
+                            const transformedShape = sp.currentShapeCoords;
+                            const previewPos = sp.previewPosition;
+                            for (const pCoord of transformedShape) {
+                                if (previewPos.x + pCoord[0] === x && previewPos.y + pCoord[1] === y && previewPos.z + pCoord[2] === z) {
+                                    innerFill.style.backgroundColor = GHOST_COLOR; // Ghost color for inner fill
+                                    outerRing.style.borderColor = GHOST_COLOR; // Ghost color for outer ring
+                                    cell.classList.add('piece-block-ghost');
+                                    ghostCells.push(cell); 
+                                    break;
+                                }
+                            }
+                        }
+                        cell.appendChild(outerRing); 
+                        cell.appendChild(innerFill);
+                        cell.addEventListener('dragover', handleDragOver);
+                        cell.addEventListener('dragleave', handleDragLeave);
+                        cell.addEventListener('drop', handleDrop);
+                        cell.addEventListener('click', () => handleClickOnCell(x,y,z));
+                    }
+                }
+                layerDiv.appendChild(table);
+                puzzleGridContainer.appendChild(layerDiv);
+            }
+        }
+
+        function renderPiecePalette() {
+            piecePaletteContainer.innerHTML = '';
+            availablePieces.forEach(piece => {
+                if (piece.placed) return;
+
+                const pieceDiv = document.createElement('div');
+                pieceDiv.className = 'piece-representation';
+                pieceDiv.draggable = true;
+                pieceDiv.dataset.pieceId = piece.id;
+                
+                let min = [Infinity,Infinity,Infinity], max = [-Infinity,-Infinity,-Infinity];
+                piece.currentShapeCoords.forEach(p => {
+                    min[0] = Math.min(min[0], p[0]); max[0] = Math.max(max[0], p[0]);
+                    min[1] = Math.min(min[1], p[1]); max[1] = Math.max(max[1], p[1]);
+                });
+
+                const cols = (max[0] - min[0] + 1) || 1;
+                const rows = (max[1] - min[1] + 1) || 1;
+                pieceDiv.style.gridTemplateColumns = `repeat(${cols}, 8px)`; 
+                pieceDiv.style.gridTemplateRows = `repeat(${rows}, 8px)`;
+
+                const displayGrid = Array(rows).fill(null).map(() => Array(cols).fill(false));
+                piece.currentShapeCoords.forEach(p => {
+                    const displayX = p[0] - min[0];
+                    const displayY = p[1] - min[1];
+                    if (displayX >= 0 && displayX < cols && displayY >= 0 && displayY < rows) {
+                         displayGrid[displayY][displayX] = true;
+                    }
+                });
+
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const blockMini = document.createElement('div');
+                        blockMini.className = 'piece-block-mini';
+                        if (displayGrid[r][c]) { blockMini.style.backgroundColor = piece.color; }
+                        pieceDiv.appendChild(blockMini);
+                    }
+                }
+                pieceDiv.addEventListener('dragstart', handleDragStart);
+                pieceDiv.addEventListener('dragend', handleDragEnd);
+                pieceDiv.addEventListener('click', () => selectPieceById(piece.id, pieceDiv));
+                if (selectedPiece && selectedPiece.id === piece.id) {
+                    pieceDiv.classList.add('ring-2', 'ring-blue-500', 'ring-offset-1'); 
+                }
+                piecePaletteContainer.appendChild(pieceDiv);
+            });
+        }
+        
+        function clearGhostPreview() {
+            ghostCells.forEach(cell => {
+                cell.classList.remove('piece-block-ghost', 'highlight-valid', 'highlight-invalid');
+            });
+            ghostCells = [];
+        }
+
+        function updateGhostPreview(targetCell = null) {
+            clearGhostPreview(); 
+            if (!selectedPiece || selectedPiece.placed) {
+                renderPuzzleGrid(); 
+                return;
+            }
+
+            let previewPos = selectedPiece.previewPosition;
+            if (targetCell) { 
+                previewPos = { x: parseInt(targetCell.dataset.x), y: parseInt(targetCell.dataset.y), z: parseInt(targetCell.dataset.z) };
+                selectedPiece.previewPosition = previewPos; 
+            } else if (!previewPos) { 
+                 selectedPiece.previewPosition = {x:0, y:0, z:0}; 
+                 previewPos = selectedPiece.previewPosition;
+            }
+            
+            const transformedShape = selectedPiece.currentShapeCoords;
+            const placement = checkPlacement(puzzleGrid, transformedShape, previewPos, puzzleSize);
+
+            renderPuzzleGrid(); 
+
+            const cellToHighlight = document.querySelector(`.puzzle-cell[data-x="${previewPos.x}"][data-y="${previewPos.y}"][data-z="${previewPos.z}"]`);
+            if (cellToHighlight) {
+                 cellToHighlight.classList.add(placement.fits ? 'highlight-valid' : 'highlight-invalid');
+                 ghostCells.push(cellToHighlight); 
+            }
+        }
+
+
+        // --- Interaction Handlers ---
+        function handleDragStart(event) {
+            const pieceId = parseInt(event.target.dataset.pieceId);
+            const piece = gamePieces.find(p => p.id === pieceId); 
+            if (piece && !piece.placed) { 
+                draggedPieceData = piece;
+                event.dataTransfer.setData('text/plain', piece.id);
+                event.dataTransfer.effectAllowed = 'move';
+                event.target.classList.add('dragging');
+                draggedPieceElement = event.target; 
+                selectPieceById(piece.id, event.target); 
+            } else {
+                event.preventDefault(); 
+            }
+        }
+
+        function handleDragEnd(event) {
+            if (draggedPieceElement) {
+                draggedPieceElement.classList.remove('dragging');
+            }
+            draggedPieceElement = null;
+            draggedPieceData = null;
+            if (selectedPiece) {
+                updateGhostPreview();
+            } else {
+                clearGhostPreview();
+                renderPuzzleGrid();
+            }
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault(); 
+            event.dataTransfer.dropEffect = 'move';
+            const cell = event.target.closest('.puzzle-cell');
+            if (cell && selectedPiece && !selectedPiece.placed) {
+                updateGhostPreview(cell);
+            }
+        }
+        
+        function handleDragLeave(event) {
+            const cell = event.target.closest('.puzzle-cell');
+            if (cell) {
+                cell.classList.remove('highlight-valid', 'highlight-invalid');
+                if(selectedPiece && !selectedPiece.placed) updateGhostPreview();
+            }
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            const targetCell = event.target.closest('.puzzle-cell');
+            if (targetCell) targetCell.classList.remove('highlight-valid', 'highlight-invalid');
+
+            if (!targetCell || !draggedPieceData) return;
+
+            const piece = selectedPiece; 
+
+            if (piece && !piece.placed) {
+                const targetX = parseInt(targetCell.dataset.x);
+                const targetY = parseInt(targetCell.dataset.y);
+                const targetZ = parseInt(targetCell.dataset.z);
+                const targetPosition = { x: targetX, y: targetY, z: targetZ };
+                piece.previewPosition = targetPosition; 
+
+                // With confirm placement button, drop doesn't auto-place. It just sets preview.
+                // User then clicks "Confirm Placement"
+                updateGhostPreview(targetCell); 
+                showMessage(`Piece previewed at ${targetX},${targetY},${targetZ}. Confirm to place.`, 'info');
+                
+                // Original auto-place on drop logic (now superseded by confirm button):
+                // const placementResult = checkPlacement(puzzleGrid, piece.currentShapeCoords, targetPosition, puzzleSize);
+                // if (placementResult.fits) {
+                //     placePieceOnGrid(piece, targetPosition, placementResult.cellsToOccupy);
+                // } else {
+                //     showMessage(`Cannot place piece here: ${placementResult.reason}.`, 'error');
+                //     updateGhostPreview(); 
+                // }
+            }
+        }
+        
+        function handleClickOnCell(x,y,z){
+            if (selectedPiece && !selectedPiece.placed) { 
+                const targetPosition = {x,y,z};
+                selectedPiece.previewPosition = targetPosition; 
+                
+                updateGhostPreview(document.querySelector(`.puzzle-cell[data-x="${x}"][data-y="${y}"][data-z="${z}"]`));
+                showMessage(`Previewing at ${x},${y},${z}. Use 'Place ✔' or controls.`, 'info');
+
+            } else { 
+                const pieceIdAtCell = puzzleGrid[z][y][x];
+                if (pieceIdAtCell !== 0) {
+                    const piece = gamePieces.find(p => p.id === pieceIdAtCell);
+                    if (piece && piece.placed) { 
+                        removePieceFromGrid(piece); 
+                        selectPieceById(piece.id, null); 
+                        selectedPiece.previewPosition = { ...piece.positionOnBoard }; 
+                        updateGhostPreview();
+                        showMessage(`Piece ${piece.id} picked up. Move or rotate.`, 'info');
+                    }
+                } else {
+                    deselectPiece(); 
+                }
+            }
+        }
+
+        function confirmPiecePlacement() {
+            if (!selectedPiece || selectedPiece.placed) {
+                showMessage('No piece selected or piece already placed.', 'error');
+                return;
+            }
+            if (!selectedPiece.previewPosition) {
+                showMessage('No preview position set for the piece.', 'error');
+                return;
+            }
+
+            const placementResult = checkPlacement(puzzleGrid, selectedPiece.currentShapeCoords, selectedPiece.previewPosition, puzzleSize);
+            if (placementResult.fits) {
+                placePieceOnGrid(selectedPiece, selectedPiece.previewPosition, placementResult.cellsToOccupy);
+                const justPlacedId = selectedPiece.id;
+                deselectPiece(); 
+                showMessage(`Piece ${justPlacedId} placed successfully!`, 'success');
+            } else {
+                showMessage(`Cannot place piece here: ${placementResult.reason}. Try moving or rotating.`, 'error');
+                updateGhostPreview(); 
+            }
+        }
+
+
+        function placePieceOnGrid(piece, position, cellsToOccupy) {
+            cellsToOccupy.forEach(cell => {
+                puzzleGrid[cell.z][cell.y][cell.x] = piece.id;
+            });
+            piece.placed = true;
+            piece.positionOnBoard = { ...position }; 
+            availablePieces = availablePieces.filter(p => p.id !== piece.id);
+            
+            renderPuzzleGrid();
+            renderPiecePalette();
+            checkWinCondition();
+            updateButtonStates(); 
+        }
+
+        function removePieceFromGrid(piece) {
+            if (!piece.placed || !piece.positionOnBoard) return;
+
+             for (const pCoord of piece.currentShapeCoords) {
+                const absX = piece.positionOnBoard.x + pCoord[0];
+                const absY = piece.positionOnBoard.y + pCoord[1];
+                const absZ = piece.positionOnBoard.z + pCoord[2];
+                if (absX >= 0 && absX < puzzleSize && absY >= 0 && absY < puzzleSize && absZ >= 0 && absZ < puzzleSize) {
+                    if(puzzleGrid[absZ][absY][absX] === piece.id) { 
+                        puzzleGrid[absZ][absY][absX] = 0;
+                    }
+                }
+            }
+
+            piece.placed = false;
+            if (!availablePieces.find(p => p.id === piece.id)) {
+                 availablePieces.push(piece);
+                 availablePieces.sort((a,b) => a.id - b.id); 
+            }
+        }
+
+
+        function selectPieceById(pieceId, element) {
+            const pieceToSelect = gamePieces.find(p => p.id === pieceId);
+            if (!pieceToSelect) return;
+
+            if (selectedPiece && selectedPiece.id !== pieceToSelect.id && !selectedPiece.placed) {
+                if (selectedPiece.positionOnBoard) {
+                    const placementResult = checkPlacement(puzzleGrid, selectedPiece.currentShapeCoords, selectedPiece.positionOnBoard, puzzleSize);
+                    if (placementResult.fits) {
+                        placePieceOnGrid(selectedPiece, selectedPiece.positionOnBoard, placementResult.cellsToOccupy);
+                    } 
+                }
+            }
+            
+            selectedPiece = pieceToSelect;
+            
+            if (selectedPiece.placed) { 
+                selectedPiece.previewPosition = { ...selectedPiece.positionOnBoard };
+            } else if (!selectedPiece.placed) { 
+                if (selectedPiece.positionOnBoard) {
+                    selectedPiece.previewPosition = { ...selectedPiece.positionOnBoard };
+                } else { 
+                    selectedPiece.previewPosition = {x: Math.floor(puzzleSize/2), y: Math.floor(puzzleSize/2), z: 0}; 
+                }
+            }
+
+            renderPiecePalette(); 
+            updateGhostPreview(); 
+            updateButtonStates();
+            showMessage(`Piece ${selectedPiece.id} selected. Preview at (${selectedPiece.previewPosition.x}, ${selectedPiece.previewPosition.y}, ${selectedPiece.previewPosition.z}).`, 'info');
+        }
+        
+        function deselectPiece() {
+            if (selectedPiece) {
+                if (!selectedPiece.placed && selectedPiece.positionOnBoard) {
+                    const placementResult = checkPlacement(puzzleGrid, selectedPiece.currentShapeCoords, selectedPiece.positionOnBoard, puzzleSize);
+                    if (placementResult.fits) {
+                        placePieceOnGrid(selectedPiece, selectedPiece.positionOnBoard, placementResult.cellsToOccupy);
+                    } 
+                }
+                selectedPiece.previewPosition = null; 
+            }
+            selectedPiece = null;
+            clearGhostPreview();
+            renderPuzzleGrid(); 
+            renderPiecePalette(); 
+            updateButtonStates();
+            showMessage('Piece deselected.', 'info');
+        }
+
+        function updateButtonStates() {
+            const pieceIsSelected = selectedPiece !== null;
+            const pieceIsSelectedAndNotPlaced = pieceIsSelected && !selectedPiece.placed;
+
+            document.getElementById('rotate-x-button').disabled = !pieceIsSelected;
+            document.getElementById('rotate-y-button').disabled = !pieceIsSelected;
+            document.getElementById('rotate-z-button').disabled = !pieceIsSelected;
+            document.getElementById('confirm-placement-button').disabled = !pieceIsSelectedAndNotPlaced;
+            
+            document.getElementById('deselect-button').disabled = !pieceIsSelected;
+        }
+
+        // --- Piece Manipulation ---
+        function rotateSelectedPiece(axis) {
+            if (!selectedPiece) return;
+
+            const originalRotationMatrix = [...selectedPiece.currentRotationMatrix.map(row => [...row])];
+            const originalShapeCoords = [...selectedPiece.currentShapeCoords.map(coord => [...coord])];
+            
+            const rotationMatrix = getRotationMatrix(axis, Math.PI / 2); 
+            selectedPiece.currentRotationMatrix = multiplyMatrices(rotationMatrix, selectedPiece.currentRotationMatrix);
+            selectedPiece.currentShapeCoords = transformShape(selectedPiece.shape, selectedPiece.currentRotationMatrix);
+
+            if (selectedPiece.placed) { 
+                const originalPosition = { ...selectedPiece.positionOnBoard };
+                
+                let cellsToClear = [];
+                 for (const pCoord of originalShapeCoords) { 
+                    const absX = originalPosition.x + pCoord[0];
+                    const absY = originalPosition.y + pCoord[1];
+                    const absZ = originalPosition.z + pCoord[2];
+                    if (absX >= 0 && absX < puzzleSize && absY >= 0 && absY < puzzleSize && absZ >= 0 && absZ < puzzleSize) {
+                         if(puzzleGrid[absZ][absY][absX] === selectedPiece.id) {
+                            puzzleGrid[absZ][absY][absX] = 0;
+                            cellsToClear.push({x:absX,y:absY,z:absZ}); 
+                         }
+                    }
+                }
+
+                const placementResult = checkPlacement(puzzleGrid, selectedPiece.currentShapeCoords, originalPosition, puzzleSize);
+                if (placementResult.fits) {
+                    placementResult.cellsToOccupy.forEach(cell => {
+                        puzzleGrid[cell.z][cell.y][cell.x] = selectedPiece.id;
+                    });
+                } else {
+                    selectedPiece.currentRotationMatrix = originalRotationMatrix;
+                    selectedPiece.currentShapeCoords = originalShapeCoords;
+                    cellsToClear.forEach(c => puzzleGrid[c.z][c.y][c.x] = selectedPiece.id);
+                    showMessage('Rotation invalid at current position. Reverted.', 'error');
+                }
+                renderPuzzleGrid(); 
+            } else { 
+                 updateGhostPreview(); 
+            }
+            renderPiecePalette(); 
+        }
+
+        function changeSelectedPieceDepth(delta) {
+            if (!selectedPiece || selectedPiece.placed) return; 
+            if (!selectedPiece.previewPosition) selectedPiece.previewPosition = {x:0, y:0, z:0};
+            
+            let newZ = selectedPiece.previewPosition.z + delta;
+            newZ = Math.max(0, Math.min(puzzleSize - 1, newZ)); 
+            selectedPiece.previewPosition.z = newZ;
+
+            updateGhostPreview();
+            showMessage(`Preview depth changed to ${newZ}.`, 'info');
+        }
+
+        function moveSelectedPiecePreview(dx, dy) {
+            if (!selectedPiece || selectedPiece.placed) return;
+            if (!selectedPiece.previewPosition) selectedPiece.previewPosition = {x:0, y:0, z:0};
+
+            let newX = selectedPiece.previewPosition.x + dx;
+            let newY = selectedPiece.previewPosition.y + dy;
+
+            newX = Math.max(0, Math.min(puzzleSize - 1, newX));
+            newY = Math.max(0, Math.min(puzzleSize - 1, newY));
+            
+            selectedPiece.previewPosition.x = newX;
+            selectedPiece.previewPosition.y = newY;
+            
+            updateGhostPreview();
+            showMessage(`Preview moved to (${newX}, ${newY}, ${selectedPiece.previewPosition.z}).`, 'info');
+        }
+        
+function handleKeyPress(event) {
+            if (!selectedPiece && !['Escape'].includes(event.key)) {
+                 // If no piece is selected and the key is not Escape,
+                 // also check if the key is one of the removed movement/depth keys to prevent errors
+                 const nonPieceActionKeys = ['q', 'pagedown', 'e', 'pageup', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'];
+                 if (nonPieceActionKeys.includes(event.key.toLowerCase())) {
+                    // Optionally show a message or just return
+                    // showMessage('Select a piece to use controls.', 'info');
+                    return;
+                 }
+                 // If not one of the removed keys and no piece selected (and not Escape), then return
+                 if (event.key.toLowerCase() !== 'escape') return;
+            }
+
+
+            let actionTaken = true;
+            switch(event.key.toLowerCase()) {
+                case 'x': if (selectedPiece) rotateSelectedPiece('x'); else actionTaken = false; break;
+                case 'y': if (selectedPiece) rotateSelectedPiece('y'); else actionTaken = false; break;
+                case 'z': if (selectedPiece) rotateSelectedPiece('z'); else actionTaken = false; break;
+                case 'enter': if (selectedPiece && !selectedPiece.placed) confirmPiecePlacement(); else actionTaken = false; break;
+                case 'escape':
+                    if (selectedPiece) deselectPiece();
+                    else actionTaken = false;
+                    break;
+                default:
+                    actionTaken = false;
+            }
+
+            if (actionTaken) {
+                event.preventDefault();
+            }
+        }
+
+        // --- Win Condition ---
+        function checkWinCondition() {
+            let filledCellCount = 0;
+            let totalVolume = puzzleSize * puzzleSize * puzzleSize;
+            for (let z = 0; z < puzzleSize; z++) {
+                for (let y = 0; y < puzzleSize; y++) {
+                    for (let x = 0; x < puzzleSize; x++) {
+                        if (puzzleGrid[z][y][x] !== 0) {
+                            filledCellCount++;
+                        }
+                    }
+                }
+            }
+
+            const allPiecesOnBoard = gamePieces.every(p => p.placed);
+            const expectedFilledCells = gamePieces.reduce((sum, p) => sum + p.numBlocks, 0);
+
+            if (allPiecesOnBoard && filledCellCount === expectedFilledCells && expectedFilledCells > 0) {
+                 if (expectedFilledCells < totalVolume) {
+                    showMessage(`Congratulations! All ${gamePieces.length} pieces placed correctly! (${expectedFilledCells}/${totalVolume} volume filled)`, 'success');
+                 } else {
+                    showMessage(`Congratulations! You solved the ${puzzleSize}x${puzzleSize}x${puzzleSize} puzzle!`, 'success');
+                 }
+                 
+                 gamePieces.forEach(p => p.draggable = false); 
+                 document.querySelectorAll('.piece-representation').forEach(el => el.draggable = false);
+                 selectedPiece = null; 
+                 updateButtonStates(); 
+                 document.getElementById('rotate-x-button').disabled = true;
+                 document.getElementById('rotate-y-button').disabled = true;
+                 document.getElementById('rotate-z-button').disabled = true;
+                 document.getElementById('confirm-placement-button').disabled = true;
+                 document.getElementById('deselect-button').disabled = true;
+            } else if (expectedFilledCells > 0) { 
+                showMessage(`${filledCellCount} / ${expectedFilledCells} cells for current pieces filled. Keep going!`, 'info');
+            } else if (gamePieces.length === 0) {
+                // Message handled by initializeNewGame
+            }
+        }
+
+        // --- Utility Functions ---
+        function showMessage(msg, type = 'info') { 
+            messageArea.textContent = msg;
+            messageArea.className = 'message-box'; 
+            if (type === 'success') messageArea.classList.add('message-success');
+            else if (type === 'error') messageArea.classList.add('message-error');
+            else messageArea.classList.add('bg-blue-100', 'text-blue-700'); 
+        }
+        
+        // --- Matrix Math for Rotations ---
+        function identityMatrix() { return [ [1, 0, 0], [0, 1, 0], [0, 0, 1] ]; }
+        function getRotationMatrix(axis, angle) {
+            const c = Math.cos(angle); const s = Math.sin(angle);
+            if (axis === 'x') return [[1,0,0],[0,c,-s],[0,s,c]];
+            if (axis === 'y') return [[c,0,s],[0,1,0],[-s,0,c]];
+            if (axis === 'z') return [[c,-s,0],[s,c,0],[0,0,1]];
+            return identityMatrix();
+        }
+        function multiplyMatrices(m1, m2) {
+            const r = [[0,0,0],[0,0,0],[0,0,0]];
+            for (let i=0;i<3;i++) for (let j=0;j<3;j++) {
+                for (let k=0;k<3;k++) r[i][j] += m1[i][k] * m2[k][j];
+                if (Math.abs(r[i][j]) < 1e-9) r[i][j] = 0;
+                else if (Math.abs(r[i][j]-1) < 1e-9) r[i][j] = 1;
+                else if (Math.abs(r[i][j]+1) < 1e-9) r[i][j] = -1;
+            }
+            return r;
+        }
+        function transformPoint(point, matrix) {
+            const [x,y,z] = point;
+            return [matrix[0][0]*x+matrix[0][1]*y+matrix[0][2]*z, matrix[1][0]*x+matrix[1][1]*y+matrix[1][2]*z, matrix[2][0]*x+matrix[2][1]*y+matrix[2][2]*z].map(v => Math.round(v));
+        }
+        function transformShape(baseShapeCoords, matrix) { return baseShapeCoords.map(p => transformPoint(p, matrix)); }
+        function getAllRotations() {
+            const matrices = new Set();
+            const queue = [identityMatrix()];
+            matrices.add(JSON.stringify(identityMatrix()));
+            const uniqueMatrices = [identityMatrix()];
+
+            const Rx = getRotationMatrix('x', Math.PI/2);
+            const Ry = getRotationMatrix('y', Math.PI/2);
+
+            let head = 0;
+            while(head < queue.length && uniqueMatrices.length < 24){
+                const current = queue[head++];
+                const next_rots = [multiplyMatrices(Rx, current), multiplyMatrices(Ry, current)];
+                for(const next_mat of next_rots){
+                    const mat_str = JSON.stringify(next_mat);
+                    if(!matrices.has(mat_str)){
+                        matrices.add(mat_str);
+                        uniqueMatrices.push(next_mat);
+                        queue.push(next_mat);
+                        if(uniqueMatrices.length >= 24) break;
+                    }
+                }
+            }
+            if (uniqueMatrices.length < 24) {
+                const I = identityMatrix(); const Rx90 = getRotationMatrix('x', Math.PI/2); const Ry90 = getRotationMatrix('y', Math.PI/2); const Rz90 = getRotationMatrix('z', Math.PI/2);
+                const R = []; const seen = new Set();
+                let m = I;
+                for(let y_rot=0; y_rot<4; y_rot++){ 
+                    let mx = m;
+                    for(let x_rot=0; x_rot<4; x_rot++){ 
+                        let mz = mx;
+                        for(let z_rot=0; z_rot<4; z_rot++){ 
+                             const s = JSON.stringify(mz); if(!seen.has(s)){ R.push(mz); seen.add(s); }
+                             mz = multiplyMatrices(Rz90, mz);
+                        }
+                        mx = multiplyMatrices(Rx90, mx);
+                    }
+                    m = multiplyMatrices(Ry90, m);
+                }
+                return R.slice(0, Math.min(R.length, 24)); 
+            }
+            return uniqueMatrices;
+        }
+
+    </script>
+</body>
+</html>
